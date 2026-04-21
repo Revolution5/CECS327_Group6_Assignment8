@@ -7,6 +7,9 @@ PORT = 1024
 DATABASE_URL_NICK = "postgresql://neondb_owner:npg_Tow98ynjARdP@ep-sparkling-glade-anutd48q-pooler.c-6.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 COLLECTION_NICK = "Table2_virtual"
 
+DATABASE_URL_DAMON = "postgresql://neondb_owner:npg_0kIR3uXfEhoj@ep-orange-cloud-a4p72xmt.us-east-1.aws.neon.tech/neondb?sslmode=require"
+COLLECTION_DAMON = "Table_virtual"
+
 myTCPSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 myTCPSocket.bind(("0.0.0.0", PORT))
 myTCPSocket.listen(5)
