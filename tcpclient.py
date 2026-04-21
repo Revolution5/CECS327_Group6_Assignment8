@@ -20,10 +20,9 @@ print("Socket connection was successful.\n")
 
 try:
     while True:
-        query = input("Input the query you wish to send: ")
-        query_str = queries.get_valid_query(query)
-        if query_str.find("Invalid query") == 0:
-            print(query_str)
+        query_str = input("Input the query you wish to send: ")
+        if not queries.is_valid_query(query_str):
+            print(f"Invalid query. Valid queries are: {', '.join(queries.valid_queries.keys())}")
             continue
 
         myTCPSocket.send(bytearray(query_str, encoding='utf-8'))

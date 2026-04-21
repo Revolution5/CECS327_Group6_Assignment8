@@ -1,5 +1,6 @@
 import socket
 from psycopg2 import connect, sql
+import queries
 
 MAX_BYTES_TO_RECEIVE = 1000
 PORT = 1024
@@ -18,7 +19,7 @@ try:
         print(f"Received query request.")
 
         with conn.cursor() as cursor:
-            query = sql.SQL(request) \
+            query = sql.SQL(queries.valid_queries[request]) \
                 .format(coll=sql.Identifier(COLLECTION_NICK))
             cursor.execute(query)
             response = str(cursor.fetchall())
