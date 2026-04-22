@@ -1,31 +1,20 @@
 import socket
-from psycopg2 import connect, sql
-import queries
+from queries import query
 
 MAX_BYTES_TO_RECEIVE = 1000
 PORT = 1024
-DATABASE_URL_NICK = "postgresql://neondb_owner:npg_Tow98ynjARdP@ep-sparkling-glade-anutd48q-pooler.c-6.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
-COLLECTION_NICK = "Table2_virtual"
-
-DATABASE_URL_DAMON = "postgresql://neondb_owner:npg_0kIR3uXfEhoj@ep-orange-cloud-a4p72xmt.us-east-1.aws.neon.tech/neondb?sslmode=require"
-COLLECTION_DAMON = "Table_virtual"
 
 myTCPSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 myTCPSocket.bind(("0.0.0.0", PORT))
 myTCPSocket.listen(5)
 incomingSocket, incomingAddress = myTCPSocket.accept()
-conn = connect(DATABASE_URL_NICK)
 
 try:
     while True:
         request = incomingSocket.recv(MAX_BYTES_TO_RECEIVE).decode()
         print(f"Received query request.")
 
-        with conn.cursor() as cursor:
-            query = sql.SQL(queries.valid_queries[request]) \
-                .format(coll=sql.Identifier(COLLECTION_NICK))
-            cursor.execute(query)
-            response = str(cursor.fetchall())
+        response = query(request)
 
         print(f"Sending query result: {response}")
         incomingSocket.send(bytearray(response, encoding='utf-8'))

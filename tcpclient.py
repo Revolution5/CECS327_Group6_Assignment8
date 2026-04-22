@@ -1,5 +1,5 @@
 import socket
-import queries
+from queries import is_valid_query, valid_queries
 
 MAX_BYTES_TO_RECEIVE = 1000
 
@@ -21,8 +21,8 @@ print("Socket connection was successful.\n")
 try:
     while True:
         query_str = input("Input the query you wish to send: ")
-        if not queries.is_valid_query(query_str):
-            print(f"Invalid query. Valid queries are: {', '.join(queries.valid_queries.keys())}")
+        if not is_valid_query(query_str):
+            print(f"Invalid query. Valid queries are: {', '.join(valid_queries.keys())}")
             continue
 
         myTCPSocket.send(bytearray(query_str, encoding='utf-8'))
