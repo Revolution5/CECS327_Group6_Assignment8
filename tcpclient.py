@@ -20,9 +20,19 @@ print("Socket connection was successful.\n")
 
 try:
     while True:
-        query_str = input("Input the query you wish to send: ")
-        if not is_valid_query(query_str):
-            print(f"Invalid query. Valid queries are: {', '.join(valid_queries.keys())}")
+        print("Available queries:") 
+        print("1. What is the average moisture inside our kitchen fridges in the past hours, week and month?")
+        print("2. What is the average water consumption per cycle across our smart dishwashers in the past hour, week and month?")
+        print("3. Which house consumed more electricity in the past 24 hours, and by how much?\n")
+        query_input = input("Input the number of the query you wish to send: ")
+        if query_input == "1":
+            query_str = "get_avg_moisture"
+        elif query_input == "2":
+            query_str = "get_avg_water_consumption"
+        # elif query_input == "3":
+        #     query_str = "get_most_electricity_consumption"
+        else:
+            print(f"Invalid query. Valid options are: {', '.join(valid_queries.keys())}\n")
             continue
 
         myTCPSocket.send(bytearray(query_str, encoding='utf-8'))
