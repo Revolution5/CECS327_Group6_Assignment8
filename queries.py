@@ -60,9 +60,10 @@ def load_metadata():
         for x in all_metadata:
             asset_uid = x[0]
             asset_type = x[1]
-            if "fridge" in asset_type.lower(): 
+            print(asset_type)
+            if asset_type == "Fridge": 
                 metadata_damon['fridges'].append(asset_uid)
-            elif "dishwasher" in asset_type.lower(): 
+            elif asset_type == "Dishwasher": 
                 metadata_damon['dishwasher'] = asset_uid
 
             custom_attr = x[2]
@@ -119,11 +120,16 @@ FROM (
         CASE
             WHEN payload::jsonb ->> 'parent_asset_uid' = {nicksf1} THEN 'NICK-SF1'
             WHEN payload::jsonb ->> 'parent_asset_uid' = {nicksf2} THEN 'NICK-SF2'
+            WHEN payload::jsonb ->> 'parent_asset_uid' = {damonsf1} THEN 'DAMON-SF1'
+            WHEN payload::jsonb ->> 'parent_asset_uid' = {damonsf2} THEN 'DAMON-SF2'
         END AS fridge,
         to_timestamp((payload ->> 'timestamp')::bigint) AS ts,
         COALESCE(
             (payload ->> 'SF1-MM')::numeric,
-            (payload ->> 'SF2-MM')::numeric
+            (payload ->> 'SF2-MM')::numeric,
+            (payload ->> 'Moisture Meter - Moisture Meter Fridge')::numeric,
+            (payload ->> 'Moisture Meter - Moisture Meter Fridge 2')::numeric
+            
         ) AS value
     FROM {coll}
 ) AS t
@@ -176,6 +182,8 @@ def query(request : str) -> str:
             query = sql.SQL(valid_queries[request]) \
                 .format(nicksf1=sql.Literal(metadata_nick['fridges'][0]), 
                         nicksf2=sql.Literal(metadata_nick['fridges'][1]),
+                        damonsf1=sql.Literal(metadata_damon['fridges'][0]),
+                        damonsf2=sql.Literal(metadata_damon['fridges'][1]),
                         coll=sql.Identifier(COLLECTION_NICK))
             cursor.execute(query)
             response = str(cursor.fetchall())
