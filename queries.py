@@ -53,19 +53,21 @@ def load_metadata():
                 cattr = sql.Identifier("customAttributes"),
                 coll=sql.Identifier(METADATA_DAMON))
     
-    metadata_damon = {}
+    metadata_damon = {"fridges": [], "dishwasher": ""}
     with conn.cursor() as cursor:
         cursor.execute(query)
         all_metadata = cursor.fetchall()
         for x in all_metadata:
             asset_uid = x[0]
             asset_type = x[1]
-            if "fridge" in asset_type.lower(): asset_type = "fridge"
-            elif "dishwasher" in asset_type.lower(): asset_type = "dishwasher"
+            if "fridge" in asset_type.lower(): 
+                metadata_damon['fridges'].append(asset_uid)
+            elif "dishwasher" in asset_type.lower(): 
+                metadata_damon['dishwasher'] = asset_uid
 
             custom_attr = x[2]
             sensors = custom_attr['children'][0]['customAttributes']['children']
-            metadata_damon[asset_uid] = [asset_type]
+            metadata_damon[asset_uid] = {}
             for sensor in sensors:
                 sensor_uid = sensor['assetUid']
                 sensor_type = sensor['customAttributes']['name']
@@ -75,12 +77,13 @@ def load_metadata():
                 else: continue
                 sensor_units = sensor['customAttributes']['unit']
 
-                metadata_damon[asset_uid].append((sensor_uid, sensor_type, sensor_units))
+                metadata_damon[asset_uid][sensor_type] = (sensor_uid, sensor_units)
     
     return metadata_nick, metadata_damon
 
 metadata_nick, metadata_damon = load_metadata()
-# print(metadata_nick)
+first_fridge = metadata_nick["fridges"][0]
+print(metadata_nick[first_fridge])
 
 def initial_timestamp_shared_from_damon():
     conn = connect(DATABASE_URL_NICK)
