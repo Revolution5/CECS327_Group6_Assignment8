@@ -37,7 +37,7 @@ try:
 
         myTCPSocket.send(bytearray(query_str, encoding='utf-8'))
         serverresponse = myTCPSocket.recv(MAX_BYTES_TO_RECEIVE).decode()
-        print(f"Server response: {serverresponse}")
+        print(f"Server response:\n{serverresponse}\n")
 except Exception as e:
     print(f"Error with transmission/receiving of message.\n{e}")
 except KeyboardInterrupt as k:

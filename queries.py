@@ -118,10 +118,10 @@ class QueryEnum(Enum):
 FROM (
     SELECT
         CASE
-            WHEN payload::jsonb ->> 'parent_asset_uid' = {nicksf1} THEN 'NICK-SF1'
-            WHEN payload::jsonb ->> 'parent_asset_uid' = {nicksf2} THEN 'NICK-SF2'
-            WHEN payload::jsonb ->> 'parent_asset_uid' = {damonsf1} THEN 'DAMON-SF1'
-            WHEN payload::jsonb ->> 'parent_asset_uid' = {damonsf2} THEN 'DAMON-SF2'
+            WHEN payload::jsonb ->> 'parent_asset_uid' = {nicksf1} THEN 'NICK-SmartFridge1'
+            WHEN payload::jsonb ->> 'parent_asset_uid' = {nicksf2} THEN 'NICK-SmartFridge2'
+            WHEN payload::jsonb ->> 'parent_asset_uid' = {damonsf1} THEN 'DAMON-SmartFridge1'
+            WHEN payload::jsonb ->> 'parent_asset_uid' = {damonsf2} THEN 'DAMON-SmartFridge2'
         END AS fridge,
         to_timestamp((payload ->> 'timestamp')::bigint) AS ts,
         COALESCE(
@@ -186,11 +186,32 @@ def query(request : str) -> str:
                         damonsf2=sql.Literal(metadata_damon['fridges'][1]),
                         coll=sql.Identifier(COLLECTION_NICK))
             cursor.execute(query)
-            response = str(cursor.fetchall())
-            return response
+            response = cursor.fetchall()
+
+            # Format the response
+            ret = "Fridge | Hour | Week | Month"
+            assets = [metadata_nick['fridges'][0], metadata_nick['fridges'][1],
+                     metadata_damon['fridges'][0], metadata_damon['fridges'][1]]
+            units = [metadata_nick[assets[0]]["MM"][1], metadata_nick[assets[1]]["MM"][1],
+                     metadata_damon[assets[2]]["MM"][1], metadata_damon[assets[3]]["MM"][1]]
+            for i in range(len(response)):
+                unit = "Volts" #units[i]
+                result = response[i]
+                ret += f"\n{result[0]}"
+                ret += f"\t{round(result[1], 2)} {unit}"
+                ret += f"\t{round(result[2], 2)} {unit}"
+                ret += f"\t{round(result[3], 2)} {unit}"
+                # "\t{round(result[1], 2)}\t{round(result[2], 2)}\t{round(result[3], 2)}\n"
+            return ret
         
     elif request == "get_avg_water_consumption":
-        pass
+        conn = connect(DATABASE_URL_NICK)
+        with conn.cursor() as cursor:
+            query = sql.SQL(valid_queries[request]) \
+                .format(coll=sql.Identifier(COLLECTION_NICK))
+            cursor.execute(query)
+            response = cursor.fetchall()
+            return str(response)
 
     else:
         pass
