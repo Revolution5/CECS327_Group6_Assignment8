@@ -74,7 +74,7 @@ def load_metadata():
                 sensor_type = sensor['customAttributes']['name']
                 if "moisture" in sensor_type.lower(): sensor_type = "MM"
                 elif "ammeter" in sensor_type.lower(): sensor_type = "AMM"
-                elif "float" in sensor_type.lower(): sensor_type = "WAC"
+                elif "wac" in sensor_type.lower(): sensor_type = "WAC"
                 else: continue
                 sensor_units = sensor['customAttributes']['unit']
 
@@ -152,7 +152,7 @@ FROM (
         to_timestamp((payload ->> 'timestamp')::bigint) AS ts,
         COALESCE(
             (payload ->> 'SD-WAC')::numeric,
-            (payload ->> 'Float Switch - Float Switch Dishwasher')::numeric
+            (payload ->> 'YF-S201 - wac')::numeric
         ) AS value
     FROM {coll}
 ) AS t
