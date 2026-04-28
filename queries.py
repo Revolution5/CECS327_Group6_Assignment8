@@ -36,14 +36,14 @@ def load_metadata():
             metadata_nick[asset_uid] = {}
             for sensor in sensors:
                 sensor_uid = sensor['assetUid']
-                sensor_type = sensor['customAttributes']['name']
-                if "amm" in sensor_type.lower(): sensor_type = "AMM"
-                elif "mm" in sensor_type.lower(): sensor_type = "MM"
-                elif "wac" in sensor_type.lower(): sensor_type = "WAC"
+                sensor_name = sensor['customAttributes']['name']
+                if "amm" in sensor_name.lower(): sensor_type = "AMM"
+                elif "mm" in sensor_name.lower(): sensor_type = "MM"
+                elif "wac" in sensor_name.lower(): sensor_type = "WAC"
                 else: continue
                 sensor_units = sensor['customAttributes']['unit']
             
-                metadata_nick[asset_uid][sensor_type] = (sensor_uid, sensor_units)
+                metadata_nick[asset_uid][sensor_type] = (sensor_uid, sensor_units, sensor_name)
 
     
     conn = connect(DATABASE_URL_DAMON)
@@ -71,20 +71,21 @@ def load_metadata():
             metadata_damon[asset_uid] = {}
             for sensor in sensors:
                 sensor_uid = sensor['assetUid']
-                sensor_type = sensor['customAttributes']['name']
-                if "moisture" in sensor_type.lower(): sensor_type = "MM"
-                elif "ammeter" in sensor_type.lower(): sensor_type = "AMM"
-                elif "wac" in sensor_type.lower(): sensor_type = "WAC"
+                sensor_name = sensor['customAttributes']['name']
+                if "moisture" in sensor_name.lower(): sensor_type = "MM"
+                elif "ammeter" in sensor_name.lower(): sensor_type = "AMM"
+                elif "wac" in sensor_name.lower(): sensor_type = "WAC"
                 else: continue
                 sensor_units = sensor['customAttributes']['unit']
 
-                metadata_damon[asset_uid][sensor_type] = (sensor_uid, sensor_units)
+                metadata_damon[asset_uid][sensor_type] = (sensor_uid, sensor_units, sensor_name)
     
     return metadata_nick, metadata_damon
 
 metadata_nick, metadata_damon = load_metadata()
-first_fridge = metadata_nick["fridges"][0]
-print(metadata_nick[first_fridge])
+print(metadata_damon)
+dishwasher=metadata_damon["dishwasher"]
+print(metadata_damon[dishwasher])
 
 def initial_timestamp_shared_from_damon():
     conn = connect(DATABASE_URL_NICK)
@@ -162,13 +163,35 @@ ORDER BY dishwasher;"""
 
     MOST_ELECTRICITY_CONSUMPTION = \
 """"""
+    
+    ELECTRICITY_CONSUMPTION_HOUSE = \
+"""SELECT
+    house,
+    SUM(value) FILTER (WHERE ts >= NOW() - INTERVAL '1 day') AS energy_consumption
+FROM (
+    SELECT
+        {house} AS house,
+        to_timestamp((payload ->> 'timestamp')::bigint) AS ts,
+        COALESCE(
+            (payload ->> {amm1})::numeric,
+            (payload ->> {amm2})::numeric,
+            (payload ->> {amm3})::numeric
+        ) AS value
+    FROM {coll}
+    WHERE payload::jsonb ->> 'parent_asset_uid' IN ({device1}, {device2}, {device3})
+) AS t
+WHERE value IS NOT NULL
+GROUP BY house
+"""
 
 #--------------------------------------------------------------
 
 
 valid_queries = {
     "get_avg_moisture": QueryEnum.AVG_MOISTURE.value,
-    "get_avg_water_consumption": QueryEnum.AVG_WATER_CONSUMPTION.value
+    "get_avg_water_consumption": QueryEnum.AVG_WATER_CONSUMPTION.value,
+    "get_most_electricity_consumption": QueryEnum.MOST_ELECTRICITY_CONSUMPTION.value,
+    "get_house_electricity_consumption": QueryEnum.ELECTRICITY_CONSUMPTION_HOUSE.value
 }
 
 # The valid queries that the server can execute.
@@ -236,7 +259,66 @@ def query(request : str) -> str:
                 ret += f"\t{round(result[2], 2)} {unit}"
                 ret += f"\t{round(result[3], 2)} {unit}"
             return ret
-    else:
-        pass
+    elif request == "get_most_electricity_consumption":
+        if time_since_data_shared() >= timedelta(days=1): # All the data is in one database
+            # TODO: modify query to only pull from one database
+            pass
 
-    return ""
+        conn = connect(DATABASE_URL_NICK)
+        with conn.cursor() as cursor:
+            devices = [metadata_nick["fridges"][0], metadata_nick["fridges"][1], metadata_nick["dishwasher"]]
+            names = [metadata_nick[devices[i]]["AMM"][2] for i in (0, 1, 2)]
+            query = sql.SQL(valid_queries["get_house_electricity_consumption"]) \
+                .format(house=sql.Literal('NICK-House'),
+                        amm1=sql.Literal(names[0]),
+                        amm2=sql.Literal(names[1]),
+                        amm3=sql.Literal(names[2]),
+                        device1=sql.Literal(devices[0]),
+                        device2=sql.Literal(devices[1]),
+                        device3=sql.Literal(devices[2]),
+                        coll=sql.Identifier(COLLECTION_NICK))
+            cursor.execute(query)
+            nick_result = cursor.fetchone()
+            
+            if nick_result is None:
+                return "Error: Query failed with Nick's house"
+              
+            nick_house, nick_consumption = nick_result[0], round(nick_result[1], 2)
+        
+        conn = connect(DATABASE_URL_DAMON)
+        with conn.cursor() as cursor:
+            devices = [metadata_damon["fridges"][0], metadata_damon["fridges"][1], metadata_damon["dishwasher"]]
+            names = [metadata_damon[devices[i]]["AMM"][2] for i in (0, 1, 2)]
+            query = sql.SQL(valid_queries["get_house_electricity_consumption"]) \
+                .format(house=sql.Literal('DAMON-House'),
+                        amm1=sql.Literal(names[0]),
+                        amm2=sql.Literal(names[1]),
+                        amm3=sql.Literal(names[2]),
+                        device1=sql.Literal(devices[0]),
+                        device2=sql.Literal(devices[1]),
+                        device3=sql.Literal(devices[2]),
+                        coll=sql.Identifier(COLLECTION_DAMON))
+            cursor.execute(query)
+            damon_result = cursor.fetchone()
+
+            if damon_result is None:
+                return "Error: Query failed with Damon's house"
+        
+            damon_house, damon_consumption = damon_result[0], round(damon_result[1], 2)
+
+        ret = "House | Consumption"
+        ret += f"\n{nick_house}\t{nick_consumption} Amperes"
+        ret += f"\n{damon_house}\t{damon_consumption} Amperes"
+        ret += "\n\n"
+
+        difference = nick_consumption - damon_consumption
+        if difference > 0:
+            ret += f"{nick_house} consumed {difference} Amperes more than {damon_house}"
+        elif difference < 0:
+            ret += f"{damon_house} consumed {-difference} Amperes more than {nick_house}"
+        else:
+            ret += f"Both houses consumed the same amount of electricity"
+
+        return ret
+    else:
+        raise Exception("Invalid query passed to query(request) in queries.py.")

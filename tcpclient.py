@@ -29,8 +29,8 @@ try:
             query_str = "get_avg_moisture"
         elif query_input == "2":
             query_str = "get_avg_water_consumption"
-        # elif query_input == "3":
-        #     query_str = "get_most_electricity_consumption"
+        elif query_input == "3":
+            query_str = "get_most_electricity_consumption"
         else:
             print(f"Invalid query. Valid options are: {', '.join(valid_queries.keys())}\n")
             continue
