@@ -74,7 +74,7 @@ def load_metadata():
                 sensor_type = sensor['customAttributes']['name']
                 if "moisture" in sensor_type.lower(): sensor_type = "MM"
                 elif "ammeter" in sensor_type.lower(): sensor_type = "AMM"
-                elif "consumption" in sensor_type.lower(): sensor_type = "WAC"
+                elif "float" in sensor_type.lower(): sensor_type = "WAC"
                 else: continue
                 sensor_units = sensor['customAttributes']['unit']
 
@@ -145,9 +145,15 @@ ORDER BY fridge;"""
     AVG(value) FILTER (WHERE ts >= NOW() - INTERVAL '1 month') AS avg_last_month
 FROM (
     SELECT
-        'SD-WAC' AS dishwasher,
+        CASE
+            WHEN payload::jsonb ->> 'parent_asset_uid' = {nicksdishwasher} THEN 'NICK-Dishwasher'
+            WHEN payload::jsonb ->> 'parent_asset_uid' = {damonsdishwasher} THEN 'DAMON-Dishwasher'
+        END AS dishwasher,
         to_timestamp((payload ->> 'timestamp')::bigint) AS ts,
-        (payload ->> 'SD-WAC')::numeric AS value
+        COALESCE(
+            (payload ->> 'SD-WAC')::numeric,
+            (payload ->> 'Float Switch - Float Switch Dishwasher')::numeric
+        ) AS value
     FROM {coll}
 ) AS t
 WHERE value IS NOT NULL
@@ -207,12 +213,29 @@ def query(request : str) -> str:
     elif request == "get_avg_water_consumption":
         conn = connect(DATABASE_URL_NICK)
         with conn.cursor() as cursor:
+            if time_since_data_shared() < timedelta(days=31):
+                # TODO: modify query to bring in data from other collection
+                pass
+            
             query = sql.SQL(valid_queries[request]) \
-                .format(coll=sql.Identifier(COLLECTION_NICK))
+                .format(nicksdishwasher=sql.Literal(metadata_nick['dishwasher']), 
+                        damonsdishwasher=sql.Literal(metadata_damon['dishwasher']),
+                        coll=sql.Identifier(COLLECTION_NICK))
             cursor.execute(query)
             response = cursor.fetchall()
-            return str(response)
 
+            # Keep a string return type so socket encoding is consistent.
+            ret = "Dishwasher | Hour | Week | Month"
+            assets = [metadata_nick['dishwasher'], metadata_damon['dishwasher']]
+            units = [metadata_nick[assets[0]]["WAC"][1], metadata_damon[assets[1]]["WAC"][1]]
+            for i in range(len(response)):
+                unit = units[i]
+                result = response[i]
+                ret += f"\n{result[0]}"
+                ret += f"\t{round(result[1], 2)} {unit}"
+                ret += f"\t{round(result[2], 2)} {unit}"
+                ret += f"\t{round(result[3], 2)} {unit}"
+            return ret
     else:
         pass
 

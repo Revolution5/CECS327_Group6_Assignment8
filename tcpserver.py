@@ -17,7 +17,8 @@ try:
         response = query(request)
 
         print(f"Sending query result: {response}")
-        incomingSocket.send(bytearray(response, encoding='utf-8'))
+        response_text = str(response)
+        incomingSocket.send(response_text.encode('utf-8'))
 except Exception as e:
     print(f"Error with receiving/transmission of message.\n{e}")
 except KeyboardInterrupt as k:
