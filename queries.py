@@ -25,7 +25,6 @@ def load_metadata():
         for x in all_metadata:
             asset_uid = x[0]
             asset_type = x[1]
-            print(asset_type)
             if asset_type == "Fridge": 
                 metadata_nick['fridges'].append(asset_uid)
             elif asset_type == "Dishwasher": 
@@ -60,7 +59,6 @@ def load_metadata():
         for x in all_metadata:
             asset_uid = x[0]
             asset_type = x[1]
-            print(asset_type)
             if asset_type == "Fridge": 
                 metadata_damon['fridges'].append(asset_uid)
             elif asset_type == "Dishwasher": 
@@ -83,9 +81,6 @@ def load_metadata():
     return metadata_nick, metadata_damon
 
 metadata_nick, metadata_damon = load_metadata()
-print(metadata_damon)
-dishwasher=metadata_damon["dishwasher"]
-print(metadata_damon[dishwasher])
 
 def initial_timestamp_shared_from_damon():
     conn = connect(DATABASE_URL_NICK)
@@ -98,12 +93,11 @@ def initial_timestamp_shared_from_damon():
         cursor.execute(query)
         response = cursor.fetchone()
         if response is not None:
-            print(response)
             return response[0]
         else:
             raise Exception("Failed timestamp evaluation.")
 
-initial_ts_shared = initial_timestamp_shared_from_damon()        
+initial_ts_shared = initial_timestamp_shared_from_damon()
 
 def time_since_data_shared():
     now = datetime.now(timezone.utc)
@@ -228,12 +222,15 @@ def query(request : str) -> tuple[str, str]:
             units = [metadata_nick[assets[0]]["MM"][1], metadata_nick[assets[1]]["MM"][1],
                      metadata_damon[assets[2]]["MM"][1], metadata_damon[assets[3]]["MM"][1]]
             for i in range(len(response)):
-                unit = "Volts" #units[i]
-                result = response[i]
-                ret += f"\n{result[0]}"
-                ret += f"\t{round(result[1], 2)} {unit}"
-                ret += f"\t{round(result[2], 2)} {unit}"
-                ret += f"\t{round(result[3], 2)} {unit}"
+                unit = "Relative Humidity (%)"
+                device, perhour, perweek, permonth = response[i]
+                perhour = round((perhour / 40) * 100, 2)
+                perweek = round((perweek / 40) * 100, 2)
+                permonth = round((permonth / 40) * 100, 2)
+                ret += f"\n{device}"
+                ret += f"\t{perhour} {unit}"
+                ret += f"\t{perweek} {unit}"
+                ret += f"\t{permonth} {unit}"
                 # "\t{round(result[1], 2)}\t{round(result[2], 2)}\t{round(result[3], 2)}\n"
             return time_completed, ret
         
@@ -258,11 +255,11 @@ def query(request : str) -> tuple[str, str]:
             units = [metadata_nick[assets[0]]["WAC"][1], metadata_damon[assets[1]]["WAC"][1]]
             for i in range(len(response)):
                 unit = units[i]
-                result = response[i]
-                ret += f"\n{result[0]}"
-                ret += f"\t{round(result[1], 2)} {unit}"
-                ret += f"\t{round(result[2], 2)} {unit}"
-                ret += f"\t{round(result[3], 2)} {unit}"
+                device, perhour, perweek, permonth = response[i]
+                ret += f"\n{device}"
+                ret += f"\t{round(perhour, 2)} {unit}"
+                ret += f"\t{round(perweek, 2)} {unit}"
+                ret += f"\t{round(permonth, 2)} {unit}"
             return time_completed, ret
     elif request == "get_most_electricity_consumption":
         if time_since_data_shared() >= timedelta(days=1): # All the data is in one database
@@ -324,7 +321,7 @@ def query(request : str) -> tuple[str, str]:
             ret += f"{damon_house} consumed {-difference} Amperes more than {nick_house}"
         else:
             ret += f"Both houses consumed the same amount of electricity"
-
+        ret += " in the past day"
         return time_completed, ret
     else:
         raise Exception("Invalid query passed to query(request) in queries.py.")
