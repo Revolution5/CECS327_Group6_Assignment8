@@ -2,9 +2,9 @@ from enum import Enum
 from psycopg2 import connect, sql
 from datetime import datetime, timezone, timedelta
 
-DATABASE_URL_NICK = "postgresql://neondb_owner:npg_Tow98ynjARdP@ep-sparkling-glade-anutd48q-pooler.c-6.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
-COLLECTION_NICK = "Table2_virtual"
-METADATA_NICK = "Table2_metadata"
+DATABASE_URL_NICK = "postgresql://neondb_owner:npg_kbSDQ23IHNfr@ep-still-mode-amoxs3df-pooler.c-5.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+COLLECTION_NICK = "Devices_virtual"
+METADATA_NICK = "Devices_metadata"
 
 DATABASE_URL_DAMON = "postgresql://neondb_owner:npg_0kIR3uXfEhoj@ep-orange-cloud-a4p72xmt.us-east-1.aws.neon.tech/neondb?sslmode=require"
 COLLECTION_DAMON = "table_virtual"
@@ -109,6 +109,9 @@ def time_since_data_shared():
     now = datetime.now(timezone.utc)
     return now - initial_ts_shared
 
+def ts_now_str():
+    return datetime.now().astimezone().strftime("%A, %B %d, %Y %I:%M:%S %p") + " PST"
+
 class QueryEnum(Enum):
     AVG_MOISTURE = \
 """SELECT
@@ -200,7 +203,7 @@ valid_queries = {
 def is_valid_query(query_str : str) -> bool:
     return query_str in valid_queries
 
-def query(request : str) -> str:
+def query(request : str) -> tuple[str, str]:
     if request == "get_avg_moisture":
         conn = connect(DATABASE_URL_NICK)
         with conn.cursor() as cursor:
@@ -215,6 +218,7 @@ def query(request : str) -> str:
                         damonsf2=sql.Literal(metadata_damon['fridges'][1]),
                         coll=sql.Identifier(COLLECTION_NICK))
             cursor.execute(query)
+            time_completed = ts_now_str()
             response = cursor.fetchall()
 
             # Format the response
@@ -231,7 +235,7 @@ def query(request : str) -> str:
                 ret += f"\t{round(result[2], 2)} {unit}"
                 ret += f"\t{round(result[3], 2)} {unit}"
                 # "\t{round(result[1], 2)}\t{round(result[2], 2)}\t{round(result[3], 2)}\n"
-            return ret
+            return time_completed, ret
         
     elif request == "get_avg_water_consumption":
         conn = connect(DATABASE_URL_NICK)
@@ -245,6 +249,7 @@ def query(request : str) -> str:
                         damonsdishwasher=sql.Literal(metadata_damon['dishwasher']),
                         coll=sql.Identifier(COLLECTION_NICK))
             cursor.execute(query)
+            time_completed = ts_now_str()
             response = cursor.fetchall()
 
             # Keep a string return type so socket encoding is consistent.
@@ -258,7 +263,7 @@ def query(request : str) -> str:
                 ret += f"\t{round(result[1], 2)} {unit}"
                 ret += f"\t{round(result[2], 2)} {unit}"
                 ret += f"\t{round(result[3], 2)} {unit}"
-            return ret
+            return time_completed, ret
     elif request == "get_most_electricity_consumption":
         if time_since_data_shared() >= timedelta(days=1): # All the data is in one database
             # TODO: modify query to only pull from one database
@@ -281,7 +286,7 @@ def query(request : str) -> str:
             nick_result = cursor.fetchone()
             
             if nick_result is None:
-                return "Error: Query failed with Nick's house"
+                return "", "Error: Query failed with Nick's house"
               
             nick_house, nick_consumption = nick_result[0], round(nick_result[1], 2)
         
@@ -299,10 +304,11 @@ def query(request : str) -> str:
                         device3=sql.Literal(devices[2]),
                         coll=sql.Identifier(COLLECTION_DAMON))
             cursor.execute(query)
+            time_completed = ts_now_str()
             damon_result = cursor.fetchone()
 
             if damon_result is None:
-                return "Error: Query failed with Damon's house"
+                return "", "Error: Query failed with Damon's house"
         
             damon_house, damon_consumption = damon_result[0], round(damon_result[1], 2)
 
@@ -319,6 +325,6 @@ def query(request : str) -> str:
         else:
             ret += f"Both houses consumed the same amount of electricity"
 
-        return ret
+        return time_completed, ret
     else:
         raise Exception("Invalid query passed to query(request) in queries.py.")

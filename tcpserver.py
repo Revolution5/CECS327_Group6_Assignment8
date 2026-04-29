@@ -14,7 +14,8 @@ try:
         request = incomingSocket.recv(MAX_BYTES_TO_RECEIVE).decode()
         print(f"Received query request.")
 
-        response = query(request)
+        time_completed, query_result = query(request)
+        response = f"Query completed at: {time_completed}.\n{query_result}"
 
         print(f"Sending query result: {response}")
         response_text = str(response)
