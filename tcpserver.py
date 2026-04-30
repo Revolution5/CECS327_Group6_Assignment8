@@ -8,6 +8,7 @@ myTCPSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 myTCPSocket.bind(("0.0.0.0", PORT))
 myTCPSocket.listen(5)
 incomingSocket, incomingAddress = myTCPSocket.accept()
+print("Server is running...")
 
 try:
     while True:

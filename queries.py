@@ -350,8 +350,6 @@ def query(request : str) -> tuple[str, str]:
         need_month_union = elapsed < timedelta(days=31)
 
         if need_week_union or need_month_union:
-            # One or both time windows extend before initial_ts_shared, so query
-            # each DB separately and union the rows in Python.
             conn_nick = connect(DATABASE_URL_NICK)
             with conn_nick.cursor() as cursor:
                 q = sql.SQL(QueryEnum.AVG_WATER_CONSUMPTION_NICK_ONLY.value) \
@@ -369,7 +367,7 @@ def query(request : str) -> tuple[str, str]:
                 time_completed = ts_now_str()
                 response_damon = cursor.fetchall()
 
-            # Union (distinct): deduplicate by device name, last writer wins.
+            # Union
             merged = {row[0]: row for row in response_nick + response_damon}
             response = sorted(merged.values(), key=lambda r: r[0])
         else:
