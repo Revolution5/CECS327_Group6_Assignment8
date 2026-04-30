@@ -244,8 +244,32 @@ WHERE value IS NOT NULL
 GROUP BY dishwasher
 ORDER BY dishwasher;"""
 
-    MOST_ELECTRICITY_CONSUMPTION = \
-""""""
+    ELECTRICITY_CONSUMPTION = \
+"""SELECT
+    house,
+    SUM(value) FILTER (WHERE ts >= NOW() - INTERVAL '1 day') AS energy_consumption
+FROM (
+    SELECT
+        CASE
+            WHEN payload::jsonb ->> 'parent_asset_uid' IN ({nickdevice1}, {nickdevice2}, {nickdevice3}) 
+                THEN 'NICK-House'
+            WHEN payload::jsonb ->> 'parent_asset_uid' IN ({damondevice1}, {damondevice2}, {damondevice3})
+                THEN 'DAMON-House'
+        END AS house,
+        to_timestamp((payload ->> 'timestamp')::bigint) AS ts,
+        COALESCE(
+            (payload ->> {nickamm1})::numeric,
+            (payload ->> {nickamm2})::numeric,
+            (payload ->> {nickamm3})::numeric,
+            (payload ->> {damonamm1})::numeric,
+            (payload ->> {damonamm2})::numeric,
+            (payload ->> {damonamm3})::numeric
+        ) AS value
+    FROM {coll}
+) AS t
+WHERE value IS NOT NULL
+GROUP BY house
+"""
     
     ELECTRICITY_CONSUMPTION_HOUSE = \
 """SELECT
@@ -273,7 +297,7 @@ GROUP BY house
 valid_queries = {
     "get_avg_moisture": QueryEnum.AVG_MOISTURE.value,
     "get_avg_water_consumption": QueryEnum.AVG_WATER_CONSUMPTION.value,
-    "get_most_electricity_consumption": QueryEnum.MOST_ELECTRICITY_CONSUMPTION.value,
+    "get_most_electricity_consumption": QueryEnum.ELECTRICITY_CONSUMPTION.value,
     "get_house_electricity_consumption": QueryEnum.ELECTRICITY_CONSUMPTION_HOUSE.value
 }
 
@@ -392,66 +416,95 @@ def query(request : str) -> tuple[str, str]:
             ret += f"\t{round(permonth, 2)} {unit}"
         return time_completed, ret
     elif request == "get_most_electricity_consumption":
-        if time_since_data_shared() >= timedelta(days=1): # All the data is in one database
-            # TODO: modify query to only pull from one database
-            pass
-
-        conn = connect(DATABASE_URL_NICK)
-        with conn.cursor() as cursor:
-            devices = [metadata_nick["fridges"][0], metadata_nick["fridges"][1], metadata_nick["dishwasher"]]
-            names = [metadata_nick[devices[i]]["AMM"][2] for i in (0, 1, 2)]
-            query = sql.SQL(valid_queries["get_house_electricity_consumption"]) \
-                .format(house=sql.Literal('NICK-House'),
-                        amm1=sql.Literal(names[0]),
-                        amm2=sql.Literal(names[1]),
-                        amm3=sql.Literal(names[2]),
-                        device1=sql.Literal(devices[0]),
-                        device2=sql.Literal(devices[1]),
-                        device3=sql.Literal(devices[2]),
-                        coll=sql.Identifier(COLLECTION_NICK))
-            cursor.execute(query)
-            nick_result = cursor.fetchone()
+        elapsed = time_since_data_shared()
+        if elapsed >= timedelta(days=1): # All the data is in one database
+            conn = connect(DATABASE_URL_NICK)
+            with conn.cursor() as cursor:
+                nickdevices = [metadata_nick["fridges"][0], metadata_nick["fridges"][1], metadata_nick["dishwasher"]]
+                nicknames = [metadata_nick[nickdevices[i]]["AMM"][2] for i in (0, 1, 2)]
+                damondevices = [metadata_damon["fridges"][0], metadata_damon["fridges"][1], metadata_damon["dishwasher"]]
+                damonnames = [metadata_damon[damondevices[i]]["AMM"][2] for i in (0, 1, 2)]
+                
+                query = sql.SQL(valid_queries[request]) \
+                    .format(nickamm1=sql.Literal(nicknames[0]),
+                            nickamm2=sql.Literal(nicknames[1]),
+                            nickamm3=sql.Literal(nicknames[2]),
+                            damonamm1=sql.Literal(damonnames[0]),
+                            damonamm2=sql.Literal(damonnames[1]),
+                            damonamm3=sql.Literal(damonnames[2]),
+                            nickdevice1=sql.Literal(nickdevices[0]),
+                            nickdevice2=sql.Literal(nickdevices[1]),
+                            nickdevice3=sql.Literal(nickdevices[2]),
+                            damondevice1=sql.Literal(damondevices[0]),
+                            damondevice2=sql.Literal(damondevices[1]),
+                            damondevice3=sql.Literal(damondevices[2]),
+                            coll=sql.Identifier(COLLECTION_NICK))
+                cursor.execute(query)
+                time_completed = ts_now_str()
+                result = cursor.fetchall()
+                
+                if result is None:
+                    return "", "Error: Electricity query failed with Nick's house"
+                
+                house_a, consumption_a = result[0][0], round(result[0][1], 2)
+                house_b, consumption_b = result[1][0], round(result[1][1], 2)
+        else:
+            conn = connect(DATABASE_URL_NICK)
+            with conn.cursor() as cursor:
+                devices = [metadata_nick["fridges"][0], metadata_nick["fridges"][1], metadata_nick["dishwasher"]]
+                names = [metadata_nick[devices[i]]["AMM"][2] for i in (0, 1, 2)]
+                query = sql.SQL(valid_queries["get_house_electricity_consumption"]) \
+                    .format(house=sql.Literal('NICK-House'),
+                            amm1=sql.Literal(names[0]),
+                            amm2=sql.Literal(names[1]),
+                            amm3=sql.Literal(names[2]),
+                            device1=sql.Literal(devices[0]),
+                            device2=sql.Literal(devices[1]),
+                            device3=sql.Literal(devices[2]),
+                            coll=sql.Identifier(COLLECTION_NICK))
+                cursor.execute(query)
+                nick_result = cursor.fetchone()
+                
+                if nick_result is None:
+                    return "", "Error: Electricity query failed with Nick's house"
+                
+                house_a, consumption_a = nick_result[0], round(nick_result[1], 2)
             
-            if nick_result is None:
-                return "", "Error: Query failed with Nick's house"
-              
-            nick_house, nick_consumption = nick_result[0], round(nick_result[1], 2)
-        
-        conn = connect(DATABASE_URL_DAMON)
-        with conn.cursor() as cursor:
-            devices = [metadata_damon["fridges"][0], metadata_damon["fridges"][1], metadata_damon["dishwasher"]]
-            names = [metadata_damon[devices[i]]["AMM"][2] for i in (0, 1, 2)]
-            query = sql.SQL(valid_queries["get_house_electricity_consumption"]) \
-                .format(house=sql.Literal('DAMON-House'),
-                        amm1=sql.Literal(names[0]),
-                        amm2=sql.Literal(names[1]),
-                        amm3=sql.Literal(names[2]),
-                        device1=sql.Literal(devices[0]),
-                        device2=sql.Literal(devices[1]),
-                        device3=sql.Literal(devices[2]),
-                        coll=sql.Identifier(COLLECTION_DAMON))
-            cursor.execute(query)
-            time_completed = ts_now_str()
-            damon_result = cursor.fetchone()
+            conn = connect(DATABASE_URL_DAMON)
+            with conn.cursor() as cursor:
+                devices = [metadata_damon["fridges"][0], metadata_damon["fridges"][1], metadata_damon["dishwasher"]]
+                names = [metadata_damon[devices[i]]["AMM"][2] for i in (0, 1, 2)]
+                query = sql.SQL(valid_queries["get_house_electricity_consumption"]) \
+                    .format(house=sql.Literal('DAMON-House'),
+                            amm1=sql.Literal(names[0]),
+                            amm2=sql.Literal(names[1]),
+                            amm3=sql.Literal(names[2]),
+                            device1=sql.Literal(devices[0]),
+                            device2=sql.Literal(devices[1]),
+                            device3=sql.Literal(devices[2]),
+                            coll=sql.Identifier(COLLECTION_DAMON))
+                cursor.execute(query)
+                time_completed = ts_now_str()
+                damon_result = cursor.fetchone()
 
-            if damon_result is None:
-                return "", "Error: Query failed with Damon's house"
-        
-            damon_house, damon_consumption = damon_result[0], round(damon_result[1], 2)
+                if damon_result is None:
+                    return "", "Error: Query failed with Damon's house"
+            
+                house_b, consumption_b = damon_result[0], round(damon_result[1], 2)
 
         ret = "House | Consumption"
-        ret += f"\n{nick_house}\t{nick_consumption} Amperes"
-        ret += f"\n{damon_house}\t{damon_consumption} Amperes"
+        ret += f"\n{house_a}\t{consumption_a} Amperes"
+        ret += f"\n{house_b}\t{consumption_b} Amperes"
         ret += "\n\n"
 
-        difference = nick_consumption - damon_consumption
+        difference = consumption_a - consumption_b
         if difference > 0:
-            ret += f"{nick_house} consumed {difference} Amperes more than {damon_house}"
+            ret += f"{house_a} consumed {difference} Amperes more than {house_b}"
         elif difference < 0:
-            ret += f"{damon_house} consumed {-difference} Amperes more than {nick_house}"
+            ret += f"{house_b} consumed {-difference} Amperes more than {house_a}"
         else:
             ret += f"Both houses consumed the same amount of electricity"
-        ret += " in the past day"
+        ret += " in the past 24 hours"
         return time_completed, ret
     else:
         raise Exception("Invalid query passed to query(request) in queries.py.")
