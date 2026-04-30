@@ -135,6 +135,56 @@ WHERE value IS NOT NULL
 GROUP BY fridge
 ORDER BY fridge;"""
 
+    AVG_MOISTURE_NICK_ONLY = \
+"""SELECT
+    fridge,
+    AVG(value) FILTER (WHERE ts >= NOW() - INTERVAL '1 hour')  AS avg_last_hour,
+    AVG(value) FILTER (WHERE ts >= NOW() - INTERVAL '1 week')  AS avg_last_week,
+    AVG(value) FILTER (WHERE ts >= NOW() - INTERVAL '1 month') AS avg_last_month
+FROM (
+    SELECT
+        CASE
+            WHEN payload::jsonb ->> 'parent_asset_uid' = {nicksf1} THEN 'NICK-SmartFridge1'
+            WHEN payload::jsonb ->> 'parent_asset_uid' = {nicksf2} THEN 'NICK-SmartFridge2'
+        END AS fridge,
+        to_timestamp((payload ->> 'timestamp')::bigint) AS ts,
+        COALESCE(
+            (payload ->> 'SF1-MM')::numeric,
+            (payload ->> 'SF2-MM')::numeric
+        ) AS value
+    FROM {coll}
+    WHERE payload::jsonb ->> 'parent_asset_uid' = {nicksf1}
+       OR payload::jsonb ->> 'parent_asset_uid' = {nicksf2}
+) AS t
+WHERE value IS NOT NULL
+GROUP BY fridge
+ORDER BY fridge;"""
+
+    AVG_MOISTURE_DAMON_ONLY = \
+"""SELECT
+    fridge,
+    AVG(value) FILTER (WHERE ts >= NOW() - INTERVAL '1 hour')  AS avg_last_hour,
+    AVG(value) FILTER (WHERE ts >= NOW() - INTERVAL '1 week')  AS avg_last_week,
+    AVG(value) FILTER (WHERE ts >= NOW() - INTERVAL '1 month') AS avg_last_month
+FROM (
+    SELECT
+        CASE
+            WHEN payload::jsonb ->> 'parent_asset_uid' = {damonsf1} THEN 'DAMON-SmartFridge1'
+            WHEN payload::jsonb ->> 'parent_asset_uid' = {damonsf2} THEN 'DAMON-SmartFridge2'
+        END AS fridge,
+        to_timestamp((payload ->> 'timestamp')::bigint) AS ts,
+        COALESCE(
+            (payload ->> 'Moisture Meter - Moisture Meter Fridge')::numeric,
+            (payload ->> 'Moisture Meter - Moisture Meter Fridge 2')::numeric
+        ) AS value
+    FROM {coll}
+    WHERE payload::jsonb ->> 'parent_asset_uid' = {damonsf1}
+       OR payload::jsonb ->> 'parent_asset_uid' = {damonsf2}
+) AS t
+WHERE value IS NOT NULL
+GROUP BY fridge
+ORDER BY fridge;"""
+
     AVG_WATER_CONSUMPTION = \
 """SELECT
     dishwasher,
@@ -153,6 +203,42 @@ FROM (
             (payload ->> 'YF-S201 - wac')::numeric
         ) AS value
     FROM {coll}
+) AS t
+WHERE value IS NOT NULL
+GROUP BY dishwasher
+ORDER BY dishwasher;"""
+
+    AVG_WATER_CONSUMPTION_NICK_ONLY = \
+"""SELECT
+    dishwasher,
+    AVG(value) FILTER (WHERE ts >= NOW() - INTERVAL '1 hour')  AS avg_last_hour,
+    AVG(value) FILTER (WHERE ts >= NOW() - INTERVAL '1 week')  AS avg_last_week,
+    AVG(value) FILTER (WHERE ts >= NOW() - INTERVAL '1 month') AS avg_last_month
+FROM (
+    SELECT
+        'NICK-Dishwasher' AS dishwasher,
+        to_timestamp((payload ->> 'timestamp')::bigint) AS ts,
+        (payload ->> 'SD-WAC')::numeric AS value
+    FROM {coll}
+    WHERE payload::jsonb ->> 'parent_asset_uid' = {nicksdishwasher}
+) AS t
+WHERE value IS NOT NULL
+GROUP BY dishwasher
+ORDER BY dishwasher;"""
+
+    AVG_WATER_CONSUMPTION_DAMON_ONLY = \
+"""SELECT
+    dishwasher,
+    AVG(value) FILTER (WHERE ts >= NOW() - INTERVAL '1 hour')  AS avg_last_hour,
+    AVG(value) FILTER (WHERE ts >= NOW() - INTERVAL '1 week')  AS avg_last_week,
+    AVG(value) FILTER (WHERE ts >= NOW() - INTERVAL '1 month') AS avg_last_month
+FROM (
+    SELECT
+        'DAMON-Dishwasher' AS dishwasher,
+        to_timestamp((payload ->> 'timestamp')::bigint) AS ts,
+        (payload ->> 'YF-S201 - wac')::numeric AS value
+    FROM {coll}
+    WHERE payload::jsonb ->> 'parent_asset_uid' = {damonsdishwasher}
 ) AS t
 WHERE value IS NOT NULL
 GROUP BY dishwasher
@@ -199,68 +285,110 @@ def is_valid_query(query_str : str) -> bool:
 
 def query(request : str) -> tuple[str, str]:
     if request == "get_avg_moisture":
-        conn = connect(DATABASE_URL_NICK)
-        with conn.cursor() as cursor:
-            if time_since_data_shared() < timedelta(days=31):
-                # TODO: modify query to bring in data from other collection
-                pass
-            
-            query = sql.SQL(valid_queries[request]) \
-                .format(nicksf1=sql.Literal(metadata_nick['fridges'][0]), 
-                        nicksf2=sql.Literal(metadata_nick['fridges'][1]),
-                        damonsf1=sql.Literal(metadata_damon['fridges'][0]),
-                        damonsf2=sql.Literal(metadata_damon['fridges'][1]),
-                        coll=sql.Identifier(COLLECTION_NICK))
-            cursor.execute(query)
-            time_completed = ts_now_str()
-            response = cursor.fetchall()
+        elapsed = time_since_data_shared()
+        need_week_union  = elapsed < timedelta(weeks=1)
+        need_month_union = elapsed < timedelta(days=31)
 
-            # Format the response
-            ret = "Fridge | Hour | Week | Month"
-            assets = [metadata_nick['fridges'][0], metadata_nick['fridges'][1],
-                     metadata_damon['fridges'][0], metadata_damon['fridges'][1]]
-            units = [metadata_nick[assets[0]]["MM"][1], metadata_nick[assets[1]]["MM"][1],
-                     metadata_damon[assets[2]]["MM"][1], metadata_damon[assets[3]]["MM"][1]]
-            for i in range(len(response)):
-                unit = "Relative Humidity (%)"
-                device, perhour, perweek, permonth = response[i]
-                perhour = round((perhour / 40) * 100, 2)
-                perweek = round((perweek / 40) * 100, 2)
-                permonth = round((permonth / 40) * 100, 2)
-                ret += f"\n{device}"
-                ret += f"\t{perhour} {unit}"
-                ret += f"\t{perweek} {unit}"
-                ret += f"\t{permonth} {unit}"
-                # "\t{round(result[1], 2)}\t{round(result[2], 2)}\t{round(result[3], 2)}\n"
-            return time_completed, ret
+        if need_week_union or need_month_union:
+            # One or both time windows extend before initial_ts_shared, so Damon's data
+            # in Nick's DB is incomplete for that window.  Query each DB separately and
+            # union the result rows in Python (equivalent of a SQL UNION ALL).
+            conn_nick = connect(DATABASE_URL_NICK)
+            with conn_nick.cursor() as cursor:
+                q = sql.SQL(QueryEnum.AVG_MOISTURE_NICK_ONLY.value) \
+                    .format(nicksf1=sql.Literal(metadata_nick['fridges'][0]),
+                            nicksf2=sql.Literal(metadata_nick['fridges'][1]),
+                            coll=sql.Identifier(COLLECTION_NICK))
+                cursor.execute(q)
+                response_nick = cursor.fetchall()
+
+            conn_damon = connect(DATABASE_URL_DAMON)
+            with conn_damon.cursor() as cursor:
+                q = sql.SQL(QueryEnum.AVG_MOISTURE_DAMON_ONLY.value) \
+                    .format(damonsf1=sql.Literal(metadata_damon['fridges'][0]),
+                            damonsf2=sql.Literal(metadata_damon['fridges'][1]),
+                            coll=sql.Identifier(COLLECTION_DAMON))
+                cursor.execute(q)
+                time_completed = ts_now_str()
+                response_damon = cursor.fetchall()
+
+            # Union: combine both result sets
+            response = response_nick + response_damon
+        else:
+            # All of Damon's data is already present in Nick's DB — single query suffices.
+            conn = connect(DATABASE_URL_NICK)
+            with conn.cursor() as cursor:
+                q = sql.SQL(valid_queries[request]) \
+                    .format(nicksf1=sql.Literal(metadata_nick['fridges'][0]),
+                            nicksf2=sql.Literal(metadata_nick['fridges'][1]),
+                            damonsf1=sql.Literal(metadata_damon['fridges'][0]),
+                            damonsf2=sql.Literal(metadata_damon['fridges'][1]),
+                            coll=sql.Identifier(COLLECTION_NICK))
+                cursor.execute(q)
+                time_completed = ts_now_str()
+                response = cursor.fetchall()
+
+        # Format the response
+        ret = "Fridge | Hour | Week | Month"
+        for i in range(len(response)):
+            unit = "Relative Humidity (%)"
+            device, perhour, perweek, permonth = response[i]
+            perhour  = round((perhour  / 40) * 100, 2)
+            perweek  = round((perweek  / 40) * 100, 2)
+            permonth = round((permonth / 40) * 100, 2)
+            ret += f"\n{device}"
+            ret += f"\t{perhour} {unit}"
+            ret += f"\t{perweek} {unit}"
+            ret += f"\t{permonth} {unit}"
+        return time_completed, ret
         
     elif request == "get_avg_water_consumption":
-        conn = connect(DATABASE_URL_NICK)
-        with conn.cursor() as cursor:
-            if time_since_data_shared() < timedelta(days=31):
-                # TODO: modify query to bring in data from other collection
-                pass
-            
-            query = sql.SQL(valid_queries[request]) \
-                .format(nicksdishwasher=sql.Literal(metadata_nick['dishwasher']), 
-                        damonsdishwasher=sql.Literal(metadata_damon['dishwasher']),
-                        coll=sql.Identifier(COLLECTION_NICK))
-            cursor.execute(query)
-            time_completed = ts_now_str()
-            response = cursor.fetchall()
+        elapsed = time_since_data_shared()
+        need_week_union  = elapsed < timedelta(weeks=1)
+        need_month_union = elapsed < timedelta(days=31)
 
-            # Keep a string return type so socket encoding is consistent.
-            ret = "Dishwasher | Hour | Week | Month"
-            assets = [metadata_nick['dishwasher'], metadata_damon['dishwasher']]
-            units = [metadata_nick[assets[0]]["WAC"][1], metadata_damon[assets[1]]["WAC"][1]]
-            for i in range(len(response)):
-                unit = units[i]
-                device, perhour, perweek, permonth = response[i]
-                ret += f"\n{device}"
-                ret += f"\t{round(perhour, 2)} {unit}"
-                ret += f"\t{round(perweek, 2)} {unit}"
-                ret += f"\t{round(permonth, 2)} {unit}"
-            return time_completed, ret
+        if need_week_union or need_month_union:
+            # One or both time windows extend before initial_ts_shared, so query
+            # each DB separately and union the rows in Python.
+            conn_nick = connect(DATABASE_URL_NICK)
+            with conn_nick.cursor() as cursor:
+                q = sql.SQL(QueryEnum.AVG_WATER_CONSUMPTION_NICK_ONLY.value) \
+                    .format(nicksdishwasher=sql.Literal(metadata_nick['dishwasher']),
+                            coll=sql.Identifier(COLLECTION_NICK))
+                cursor.execute(q)
+                response_nick = cursor.fetchall()
+
+            conn_damon = connect(DATABASE_URL_DAMON)
+            with conn_damon.cursor() as cursor:
+                q = sql.SQL(QueryEnum.AVG_WATER_CONSUMPTION_DAMON_ONLY.value) \
+                    .format(damonsdishwasher=sql.Literal(metadata_damon['dishwasher']),
+                            coll=sql.Identifier(COLLECTION_DAMON))
+                cursor.execute(q)
+                time_completed = ts_now_str()
+                response_damon = cursor.fetchall()
+
+            response = response_nick + response_damon
+        else:
+            # All of Damon's data is already in Nick's DB — single query suffices.
+            conn = connect(DATABASE_URL_NICK)
+            with conn.cursor() as cursor:
+                q = sql.SQL(valid_queries[request]) \
+                    .format(nicksdishwasher=sql.Literal(metadata_nick['dishwasher']),
+                            damonsdishwasher=sql.Literal(metadata_damon['dishwasher']),
+                            coll=sql.Identifier(COLLECTION_NICK))
+                cursor.execute(q)
+                time_completed = ts_now_str()
+                response = cursor.fetchall()
+
+        ret = "Dishwasher | Hour | Week | Month"
+        for i in range(len(response)):
+            unit = "Liters Per Minute"
+            device, perhour, perweek, permonth = response[i]
+            ret += f"\n{device}"
+            ret += f"\t{round(perhour, 2)} {unit}"
+            ret += f"\t{round(perweek, 2)} {unit}"
+            ret += f"\t{round(permonth, 2)} {unit}"
+        return time_completed, ret
     elif request == "get_most_electricity_consumption":
         if time_since_data_shared() >= timedelta(days=1): # All the data is in one database
             # TODO: modify query to only pull from one database
