@@ -313,7 +313,9 @@ def query(request : str) -> tuple[str, str]:
                 response_damon = cursor.fetchall()
 
             # Union: combine both result sets
-            response = response_nick + response_damon
+            # Union (distinct): deduplicate by device name, last writer wins.
+            merged = {row[0]: row for row in response_nick + response_damon}
+            response = sorted(merged.values(), key=lambda r: r[0])
         else:
             # All of Damon's data is already present in Nick's DB — single query suffices.
             conn = connect(DATABASE_URL_NICK)
@@ -367,7 +369,9 @@ def query(request : str) -> tuple[str, str]:
                 time_completed = ts_now_str()
                 response_damon = cursor.fetchall()
 
-            response = response_nick + response_damon
+            # Union (distinct): deduplicate by device name, last writer wins.
+            merged = {row[0]: row for row in response_nick + response_damon}
+            response = sorted(merged.values(), key=lambda r: r[0])
         else:
             # All of Damon's data is already in Nick's DB — single query suffices.
             conn = connect(DATABASE_URL_NICK)
